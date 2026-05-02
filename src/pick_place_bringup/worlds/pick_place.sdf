@@ -1,0 +1,83 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <world name="pick_place_world">
+
+    <include>
+      <uri>https://fuel.ignitionrobotics.org/1.0/OpenRobotics/models/Ground Plane</uri>
+    </include>
+
+    <!-- 固定方向光替换 Sun（避免动态曝光） -->
+    <light name="sun" type="directional">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>0 0 -1</direction>
+      <cast_shadows>false</cast_shadows>
+    </light>
+
+    <!-- 相机：俯视工作区 -->
+    <model name="static_camera">
+      <static>true</static>
+      <pose>0.46 -0.5 0.5 0 1.4 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.01 0.01 0.01</size>
+            </box>
+          </geometry>
+          <transparency>1.0</transparency>
+        </visual>
+        <sensor name="camera" type="camera">
+          <topic>/camera/image_raw</topic>
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>100</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>30</update_rate>
+          <visualize>true</visualize>
+        </sensor>
+      </link>
+    </model>
+
+    <!-- 工件：带颜色的方块（后续贴 ArUco 标记） -->
+    <model name="workpiece">
+      <static>true</static>
+      <pose>0.46 -0.5 0.025 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <specular>
+                <albedo_map>/home/whc/learn/ros2_learn/pick_and_place/src/pick_place_bringup/worlds/aruco_0.png</albedo_map>
+              </specular>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
