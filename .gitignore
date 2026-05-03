@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 frame_*.png
 *.md
+.clang-format

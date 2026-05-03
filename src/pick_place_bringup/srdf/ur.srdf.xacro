@@ -10,4 +10,9 @@
 
   <xacro:ur_srdf name="$(arg name)" prefix="$(arg prefix)"/>
 
+  <!-- Robotiq 2F-85 夹爪 ACM：手指间、手指与基座间的碰撞均视为自碰撞 -->
+  <disable_collisions link1="left_finger" link2="right_finger" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base" link2="left_finger" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base" link2="right_finger" reason="Adjacent"/>
+
 </robot>

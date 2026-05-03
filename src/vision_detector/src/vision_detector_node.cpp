@@ -221,7 +221,7 @@ private:
         if (!worldPose) return;
 
         m_posePub->publish(*worldPose);
-        RCLCPP_INFO(this->get_logger(),
+        RCLCPP_DEBUG(this->get_logger(),
             "Marker ID=0, world pos=(%.4f, %.4f, %.4f)",
             worldPose->pose.position.x,
             worldPose->pose.position.y,

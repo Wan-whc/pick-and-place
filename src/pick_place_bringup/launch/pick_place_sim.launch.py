@@ -14,6 +14,7 @@
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
@@ -122,6 +123,17 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
+    delay_gripper_controller = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=initial_joint_controller,
+            on_exit=[Node(
+                package="controller_manager",
+                executable="spawner",
+                arguments=["gripper_controller", "-c", "/controller_manager"],
+            )],
+        )
+    )
+
     # ── 6. 相机图像桥接 ───────────────────────────────────────────────────
     camera_bridge = Node(
         package="ros_gz_bridge",
@@ -147,6 +159,20 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
+    # 增大 jiggle_fraction 解决 UR5e 初始位姿自碰撞导致规划失败的问题
+    set_jiggle = TimerAction(
+        period=8.0,
+        actions=[
+            ExecuteProcess(
+                cmd=[
+                    "ros2", "param", "set", "/move_group",
+                    "jiggle_fraction", "0.05",
+                ],
+                output="screen",
+            ),
+        ],
+    )
+
     return [
         gz_launch,
         gz_spawn_entity,
@@ -154,8 +180,10 @@ def launch_setup(context, *args, **kwargs):
         clock_bridge,
         delayed_broadcaster,
         delay_arm_controller,
+        delay_gripper_controller,
         camera_bridge,
         ur_moveit,
+        set_jiggle,
     ]
 
 

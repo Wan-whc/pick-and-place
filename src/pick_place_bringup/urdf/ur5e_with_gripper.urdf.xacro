@@ -200,12 +200,12 @@
     <!-- 夹爪关节（revolute 替代 prismatic，兼容 ign_ros2_control） -->
     <joint name="left_finger_joint">
       <command_interface name="position"/>
-      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="position"><param name="initial_value">0.02</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_finger_joint">
       <command_interface name="position"/>
-      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="position"><param name="initial_value">0.02</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
   </ros2_control>
