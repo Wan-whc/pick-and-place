@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:macro name="robotiq_2f85" params="parent prefix">
+
+    <!-- 夹爪基座 — 固定在机械臂 tool0 -->
+    <joint name="${prefix}gripper_base_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${prefix}gripper_base"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${prefix}gripper_base">
+      <visual>
+        <geometry>
+          <box size="0.06 0.06 0.03"/>
+        </geometry>
+        <material name="gripper_metal">
+          <color rgba="0.5 0.5 0.5 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.06 0.06 0.03"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0002"/>
+      </inertial>
+    </link>
+
+    <!-- 左指 — revolute 关节绕 +Z 旋转开合 -->
+    <joint name="${prefix}left_finger_joint" type="revolute">
+      <parent link="${prefix}gripper_base"/>
+      <child link="${prefix}left_finger"/>
+      <origin xyz="0 0.005 0.025" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="0.5" effort="50" velocity="0.5"/>
+    </joint>
+
+    <link name="${prefix}left_finger">
+      <visual>
+        <geometry>
+          <box size="0.01 0.01 0.08"/>
+        </geometry>
+        <material name="finger_dark">
+          <color rgba="0.2 0.2 0.2 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.01 0.01 0.08"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.06"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <inertia ixx="5e-06" ixy="0" ixz="0" iyy="5e-06" iyz="0" izz="5e-06"/>
+      </inertial>
+    </link>
+
+    <!-- 右指 — revolute 关节绕 -Z 旋转开合，正 limit 对称 -->
+    <joint name="${prefix}right_finger_joint" type="revolute">
+      <parent link="${prefix}gripper_base"/>
+      <child link="${prefix}right_finger"/>
+      <origin xyz="0 -0.005 0.025" rpy="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <limit lower="0.0" upper="0.5" effort="50" velocity="0.5"/>
+    </joint>
+
+    <link name="${prefix}right_finger">
+      <visual>
+        <geometry>
+          <box size="0.01 0.01 0.08"/>
+        </geometry>
+        <material name="finger_dark"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.01 0.01 0.08"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.06"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <inertia ixx="5e-06" ixy="0" ixz="0" iyy="5e-06" iyz="0" izz="5e-06"/>
+      </inertial>
+    </link>
+
+  </xacro:macro>
+
+</robot>

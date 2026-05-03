@@ -3,7 +3,7 @@ project(pick_place_bringup)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY launch worlds config
+install(DIRECTORY launch worlds config urdf rviz srdf
   DESTINATION share/${PROJECT_NAME}
 )
 
