@@ -24,9 +24,10 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-  rosidl_generate_interfaces(${PROJECT_NAME}                                                                          
-    "action/PickObject.action"                                                  
-    DEPENDENCIES geometry_msgs action_msgs                                                                            
+  rosidl_generate_interfaces(${PROJECT_NAME}
+    "action/PickObject.action"
+    "action/PlaceObject.action"
+    DEPENDENCIES geometry_msgs action_msgs
   )      
 
 ament_package()
