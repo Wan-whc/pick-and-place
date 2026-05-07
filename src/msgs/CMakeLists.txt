@@ -27,6 +27,7 @@ endif()
   rosidl_generate_interfaces(${PROJECT_NAME}
     "action/PickObject.action"
     "action/PlaceObject.action"
+    "action/RunTask.action"
     DEPENDENCIES geometry_msgs action_msgs
   )      
 

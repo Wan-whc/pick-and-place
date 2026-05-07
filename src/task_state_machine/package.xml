@@ -1,21 +1,25 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>vision_detector</name>
+  <name>task_state_machine</name>
   <version>0.0.0</version>
-  <description>ArUco marker detection node — subscribes /camera/image_raw, publishes detected object poses</description>
-  <maintainer email="whc@todo.todo">whc</maintainer>
+  <description>TODO: Package description</description>
+  <maintainer email="1344360225@qq.com">whc</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>sensor_msgs</depend>
+  <depend>rclcpp_action</depend>
   <depend>geometry_msgs</depend>
-  <depend>cv_bridge</depend>
-  <depend>OpenCV</depend>
-  <depend>tf2_ros</depend>
+  <depend>std_msgs</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>msgs</depend>
+  <depend>behaviortree_cpp</depend>
   <depend>common</depend>
 
   <test_depend>ament_lint_auto</test_depend>

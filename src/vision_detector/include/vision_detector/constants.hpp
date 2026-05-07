@@ -4,15 +4,19 @@
 #include <cmath>
 #include <cstddef>
 
+#include "common/constants.hpp"
+
 namespace vision_detector
 {
 
+// ── 从 common 复用的常量 ────────────────────────────────────────────────
+using common_constants::DETECTED_POSE_TOPIC;
+using common_constants::WORLD_FRAME;
+
 // ── Topic 名称 ─────────────────────────────────────────────────────────
-constexpr auto DETECTED_POSE_TOPIC  = "/detected_object_pose";
-constexpr auto CAMERA_IMAGE_TOPIC   = "/camera/image_raw";
+constexpr auto CAMERA_IMAGE_TOPIC = "/camera/image_raw";
 
 // ── TF 坐标系名称 ──────────────────────────────────────────────────────
-constexpr auto WORLD_FRAME   = "world";
 constexpr auto CAMERA_FRAME  = "static_camera/link/camera";
 constexpr auto CAMERA_OPTICAL_FRAME = "static_camera/link/camera_optical";
 

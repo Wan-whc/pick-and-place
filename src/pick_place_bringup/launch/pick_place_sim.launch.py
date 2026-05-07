@@ -93,11 +93,12 @@ def launch_setup(context, *args, **kwargs):
     clock_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
+        name="clock_bridge",
         arguments=["/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock"],
         output="screen",
     )
 
-    # ── 5. Controller spawners（延迟启动，给 Gazebo 初始化时间） ────
+    # ── 6. Controller spawners（延迟启动，给 Gazebo 初始化时间） ────
     joint_state_broadcaster = Node(
         package="controller_manager",
         executable="spawner",
@@ -138,6 +139,7 @@ def launch_setup(context, *args, **kwargs):
     camera_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
+        name="camera_bridge",
         arguments=["/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image"],
         output="screen",
     )
@@ -166,7 +168,7 @@ def launch_setup(context, *args, **kwargs):
             ExecuteProcess(
                 cmd=[
                     "ros2", "param", "set", "/move_group",
-                    "jiggle_fraction", "0.05",
+                    "jiggle_fraction", "0.01",
                 ],
                 output="screen",
             ),

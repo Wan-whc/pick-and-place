@@ -13,6 +13,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(vision_detector REQUIRED)
 find_package(tf2 REQUIRED)
@@ -23,7 +24,7 @@ find_package(common REQUIRED)
 add_executable(place_planner_node src/place_planner_node.cpp)
 ament_target_dependencies(place_planner_node
   rclcpp rclcpp_action geometry_msgs std_msgs
-  moveit_ros_planning_interface moveit_msgs control_msgs
+  moveit_ros_planning_interface moveit_msgs control_msgs trajectory_msgs
   tf2 tf2_geometry_msgs msgs common
 )
 target_include_directories(place_planner_node PUBLIC

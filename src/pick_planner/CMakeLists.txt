@@ -45,6 +45,16 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS pick_planner_node DESTINATION lib/${PROJECT_NAME})
+add_executable(minimal_test src/minimal_test.cpp)
+ament_target_dependencies(minimal_test
+  rclcpp moveit_ros_planning_interface moveit_msgs
+)
+
+add_executable(pose_test src/pose_test.cpp)
+ament_target_dependencies(pose_test
+  rclcpp moveit_ros_planning_interface moveit_msgs tf2 tf2_geometry_msgs
+)
+
+install(TARGETS pick_planner_node minimal_test pose_test DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
