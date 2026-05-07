@@ -8,9 +8,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-#include "common/constants.hpp"
 #include "common/defer.hpp"
-#include "common/plan_execute.hpp"
 #include "msgs/action/pick_object.hpp"
 #include "vision_detector/constants.hpp"
 
@@ -18,28 +16,71 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
 
-using namespace common_constants;
 using namespace vision_detector;
 
-// ── pick 专属常量 ─────────────────────────────────────────────────────────
+// ── 常量 ────────────────────────────────────────────────────────────────
 namespace {
-constexpr auto PICK_ACTION  = "/pick_object";
-constexpr auto GRASP_DEPTH  = "grasp_depth";
-constexpr auto CLOSE_WIDTH  = "close_width";
+constexpr auto PLANNING_GROUP   = "ur_manipulator";
+constexpr auto END_EFFECTOR     = "gripper_base";
+constexpr auto POSE_REF_FRAME   = "world";
+constexpr auto GRIPPER_ACTION   = "/gripper_controller/follow_joint_trajectory";
+constexpr auto PICK_ACTION      = "/pick_object";
+constexpr auto COLLISION_OBJ_ID = "object";
+constexpr auto FINGER_L         = "left_finger_joint";
+constexpr auto FINGER_R         = "right_finger_joint";
+constexpr auto HOME_TARGET      = "home";
+
+constexpr auto OBJECT_SIZE        = 0.05;                     // m, 立方体工件边长
+constexpr auto GRIPPER_DURATION   = 0.5;                      // s, 夹爪运动时长
+constexpr auto STATE_MONITOR_WAIT = 5.0;                      // s, 等待状态监听器
+constexpr auto PLANNING_TIME      = 10.0;                     // s, 最大规划时间
+constexpr auto GRIPPER_SEND_TMO   = std::chrono::seconds(3);  // 夹爪 goal 发送超时
+constexpr auto GRIPPER_RESULT_TMO = std::chrono::seconds(5);  // 夹爪执行等待超时
+
+namespace RPY {
+constexpr auto ROLL  = M_PI;
+constexpr auto PITCH = 0.0;
+constexpr auto YAW   = 0.0;
+}  // namespace RPY
+
+namespace Param {
+constexpr auto APPROACH_HEIGHT  = "approach_height";
+constexpr auto GRASP_DEPTH      = "grasp_depth";
+constexpr auto LIFT_HEIGHT      = "lift_height";
+constexpr auto OPEN_WIDTH       = "open_width";
+constexpr auto CLOSE_WIDTH      = "close_width";
+constexpr auto VELOCITY_SCALING = "velocity_scaling";
+}  // namespace Param
 
 using ResultPtr = std::shared_ptr<msgs::action::PickObject::Result>;
+
+bool planAndExecuteImpl(moveit::planning_interface::MoveGroupInterface& mg, ResultPtr result, const char* stage, std::atomic_bool& stop) {
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    if (mg.plan(plan) != moveit::core::MoveItErrorCode::SUCCESS) {
+        result->message = std::string("Failed to plan ") + stage;
+        RCLCPP_ERROR(rclcpp::get_logger("pick_planner"), "%s", result->message.c_str());
+        return false;
+    }
+    if (stop)
+        return false;
+    mg.execute(plan);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));  // 等 arm settle，避免下次 plan 被 abort
+    return true;
+}
 }  // namespace
 
 class PickPlannerNode : public rclcpp::Node {
    public:
     PickPlannerNode() : Node("pick_planner_node") {
         declare_parameter(Param::APPROACH_HEIGHT, 0.15);
-        declare_parameter(GRASP_DEPTH, 0.03);
+        declare_parameter(Param::GRASP_DEPTH, 0.03);
         declare_parameter(Param::LIFT_HEIGHT, 0.15);
         declare_parameter(Param::OPEN_WIDTH, 0.5);
-        declare_parameter(CLOSE_WIDTH, 0.0);
+        declare_parameter(Param::CLOSE_WIDTH, 0.0);
         declare_parameter(Param::VELOCITY_SCALING, 0.5);
     }
 
@@ -48,6 +89,10 @@ class PickPlannerNode : public rclcpp::Node {
         m_stop = true;
         if (m_thread.joinable())
             m_thread.join();
+    }
+    void spinSome() {
+        std::lock_guard<std::mutex> lock(m_spinMutex);
+        rclcpp::spin_some(shared_from_this());
     }
 
    private:
@@ -61,28 +106,29 @@ class PickPlannerNode : public rclcpp::Node {
 
     void executePick(const std::shared_ptr<GoalHandle>& goalHandle);
 
-    bool stageApproach(const std::shared_ptr<GoalHandle>& gh, ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose);
-    bool stageGripper(const std::vector<double>& positions, ResultPtr result, const char* stage);
-    bool stageDescend(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose, const std::string& collisionId);
-    bool stageLift(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose);
+    bool stage_approach(const std::shared_ptr<GoalHandle>& gh, ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose);
+    bool stage_gripper(const std::vector<double>& positions, ResultPtr result, const char* stage);
+    bool stage_descend(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose, const std::string& collisionId);
+    bool stage_lift(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose);
 
     // ── ROS2 接口 ──
-    std::shared_ptr<moveit::planning_interface::MoveGroupInterface>               m_moveGroup;      // 运动规划接口：setPoseTarget → plan → execute
-    moveit::planning_interface::PlanningSceneInterface                            m_planningScene;   // 规划场景：增删碰撞体
-    rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr m_gripperClient;   // 夹爪 action client：发送关节轨迹目标
-    rclcpp_action::Server<msgs::action::PickObject>::SharedPtr                    m_actionServer;    // 抓取 action server：接收外部抓取请求
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface>               m_moveGroup;
+    moveit::planning_interface::PlanningSceneInterface                            m_planningScene;
+    rclcpp_action::Client<control_msgs::action::FollowJointTrajectory>::SharedPtr m_gripperClient;
+    rclcpp_action::Server<msgs::action::PickObject>::SharedPtr                    m_actionServer;
 
     // ── 可调参数 ──
-    double m_approachHeight;   // 接近高度 (m)，从目标上方开始下降
-    double m_graspDepth;       // 抓取深度 (m)，夹具嵌入工件的量
-    double m_liftHeight;       // 抬起高度 (m)，抓取后向上抬升
-    double m_openWidth;        // 张开角度 (rad)，夹爪释放/准备抓取
-    double m_closeWidth;       // 闭合角度 (rad)，夹紧工件
-    double m_velocityScaling;  // 速度缩放因子 (0-1)
+    double m_approachHeight;
+    double m_graspDepth;
+    double m_liftHeight;
+    double m_openWidth;
+    double m_closeWidth;
+    double m_velocityScaling;
 
     // ── 线程控制 ──
-    std::thread      m_thread;  // 执行线程：跑 pick 流程，不阻塞 spinning
-    std::atomic_bool m_stop = false;  // 取消标志：通知执行线程提前退出
+    std::thread      m_thread;
+    std::atomic_bool m_stop = false;
+    std::mutex       m_spinMutex;  // 防止 main 和 stage_gripper 同时 spin_some
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -93,7 +139,10 @@ int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
     auto p = std::make_shared<PickPlannerNode>();
     p->init();
-    rclcpp::spin(p);
+    while (rclcpp::ok()) {
+        p->spinSome();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     rclcpp::shutdown();
     return 0;
 }
@@ -104,24 +153,20 @@ int main(int argc, char* argv[]) {
 
 void PickPlannerNode::init() {
     get_parameter(Param::APPROACH_HEIGHT, m_approachHeight);
-    get_parameter(GRASP_DEPTH, m_graspDepth);
+    get_parameter(Param::GRASP_DEPTH, m_graspDepth);
     get_parameter(Param::LIFT_HEIGHT, m_liftHeight);
     get_parameter(Param::OPEN_WIDTH, m_openWidth);
-    get_parameter(CLOSE_WIDTH, m_closeWidth);
+    get_parameter(Param::CLOSE_WIDTH, m_closeWidth);
     get_parameter(Param::VELOCITY_SCALING, m_velocityScaling);
 
-    // ── MoveIt 接口 ──
     m_moveGroup = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), PLANNING_GROUP);
-    m_moveGroup->setEndEffectorLink(END_EFFECTOR);                           // 指定 TCP 为 gripper_base，而非默认的 tool0
-    m_moveGroup->setPoseReferenceFrame(POSE_REF_FRAME);                      // 目标位姿在 world 坐标系下表达
-    m_moveGroup->setMaxVelocityScalingFactor(m_velocityScaling);             // 限制速度，仿真中观察更清晰
-    m_moveGroup->startStateMonitor(STATE_MONITOR_WAIT);                      // 启动关节状态监听，等收到有效状态
-    m_moveGroup->setPlanningTime(PLANNING_TIME);                             // 单次规划最长等待时间
+    m_moveGroup->setEndEffectorLink(END_EFFECTOR);
+    m_moveGroup->setPoseReferenceFrame(POSE_REF_FRAME);
+    m_moveGroup->setMaxVelocityScalingFactor(m_velocityScaling);
+    m_moveGroup->startStateMonitor(STATE_MONITOR_WAIT);
+    m_moveGroup->setPlanningTime(PLANNING_TIME);
 
-    // ── 夹爪 action client ──
     m_gripperClient = rclcpp_action::create_client<control_msgs::action::FollowJointTrajectory>(shared_from_this(), GRIPPER_ACTION);
-
-    // ── 抓取 action server ──
     m_actionServer  = rclcpp_action::create_server<msgs::action::PickObject>(
         shared_from_this(), PICK_ACTION, std::bind(&PickPlannerNode::handleGoal, this, std::placeholders::_1, std::placeholders::_2),
         std::bind(&PickPlannerNode::handleCancel, this, std::placeholders::_1), std::bind(&PickPlannerNode::handleAccepted, this, std::placeholders::_1));
@@ -133,25 +178,23 @@ void PickPlannerNode::init() {
 
 rclcpp_action::GoalResponse PickPlannerNode::handleGoal(const rclcpp_action::GoalUUID&, std::shared_ptr<const msgs::action::PickObject::Goal> goal) {
     RCLCPP_INFO(get_logger(), "Received goal request");
-    if (goal->target_pose.header.frame_id != WORLD_FRAME) {
-        RCLCPP_ERROR(get_logger(), "Target pose frame is not world frame");
-        return rclcpp_action::GoalResponse::REJECT;
-    }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
 rclcpp_action::CancelResponse PickPlannerNode::handleCancel(const std::shared_ptr<rclcpp_action::ServerGoalHandle<msgs::action::PickObject>>&) {
-    m_stop = true;                    // 通知执行线程提前退出
+    m_stop = true;
     if (m_moveGroup)
-        m_moveGroup->stop();          // 立刻停止正在执行的臂轨迹
+        m_moveGroup->stop();
     return rclcpp_action::CancelResponse::ACCEPT;
 }
 
 void PickPlannerNode::handleAccepted(const std::shared_ptr<rclcpp_action::ServerGoalHandle<msgs::action::PickObject>> goalHandle) {
-    // 如果上一次任务还在跑，先停止并等它退出
     if (m_thread.joinable()) {
         m_stop = true;
         m_thread.join();
+        // 重建 gripper client，避免复用导致的第二次超时
+        m_gripperClient = rclcpp_action::create_client<control_msgs::action::FollowJointTrajectory>(
+            shared_from_this(), GRIPPER_ACTION);
     }
     m_stop   = false;
     m_thread = std::thread([this, goalHandle]() { executePick(goalHandle); });
@@ -165,7 +208,6 @@ void PickPlannerNode::executePick(const std::shared_ptr<GoalHandle>& goalHandle)
     auto result     = std::make_shared<msgs::action::PickObject::Result>();
     result->success = false;
 
-    // 任何 return 路径都会触发 DEFER，保证 client 收到 succeeeding/canceled
     bool finished = false;
     DEFER({
         if (!finished) {
@@ -178,7 +220,6 @@ void PickPlannerNode::executePick(const std::shared_ptr<GoalHandle>& goalHandle)
     });
 
     // ── Stage 1: 注册工件碰撞体 ──
-    // 把工件作为 5cm 立方盒子加入规划场景，MoveIt 规划的轨迹会避开它
     moveit_msgs::msg::CollisionObject collisionObject;
     collisionObject.id              = COLLISION_OBJ_ID;
     collisionObject.header.frame_id = WORLD_FRAME;
@@ -189,41 +230,36 @@ void PickPlannerNode::executePick(const std::shared_ptr<GoalHandle>& goalHandle)
     collisionObject.primitive_poses.push_back(goalHandle->get_goal()->target_pose.pose);
     m_planningScene.addCollisionObjects({collisionObject});
 
-    // ── Stage 2: 接近（工件上方 m_approachHeight 米） ──
+    // ── Stage 2: 接近 ──
     auto targetPose = goalHandle->get_goal()->target_pose;
-    if (!stageApproach(goalHandle, result, targetPose))
+    if (!stage_approach(goalHandle, result, targetPose))
         return;
 
-    // ── Stage 3: 开夹爪 ──
+    // ── Stage 3: 开夹爪 (暂时注释，先验证 arm) ──
+    // if (m_stop) return;
+    // if (!stage_gripper({m_openWidth, m_openWidth}, result, "open gripper")) return;
+
+    // ── Stage 4: 下降抓取 ──
     if (m_stop)
         return;
-    if (!stageGripper({m_openWidth, m_openWidth}, result, "open gripper"))
+    if (!stage_descend(result, targetPose, collisionObject.id))
         return;
 
-    // ── Stage 4: 下降抓取（移除碰撞体 → arm 进入工件空间） ──
+    // ── Stage 5: 闭夹爪 (暂时注释) ──
+    // if (m_stop) return;
+    // if (!stage_gripper({m_closeWidth, m_closeWidth}, result, "close gripper")) return;
+
+    // ── Stage 6: 绑定工件 (暂时注释) ──
+    // if (m_stop) return;
+    // m_moveGroup->attachObject(collisionObject.id, END_EFFECTOR);
+
+    // ── Stage 7: 抬起 ──
     if (m_stop)
         return;
-    if (!stageDescend(result, targetPose, collisionObject.id))
+    if (!stage_lift(result, targetPose))
         return;
 
-    // ── Stage 5: 闭夹爪 ──
-    if (m_stop)
-        return;
-    if (!stageGripper({m_closeWidth, m_closeWidth}, result, "close gripper"))
-        return;
-
-    // ── Stage 6: 绑定工件到夹爪（后续臂运动时工件跟随移动） ──
-    if (m_stop)
-        return;
-    m_moveGroup->attachObject(collisionObject.id, END_EFFECTOR);
-
-    // ── Stage 7: 抬起 m_liftHeight 米 ──
-    if (m_stop)
-        return;
-    if (!stageLift(result, targetPose))
-        return;
-
-    // ── Stage 8: 回预定义 home 位姿 ──
+    // ── Stage 8: 回 home ──
     if (m_stop)
         return;
     if (!m_moveGroup->setNamedTarget(HOME_TARGET)) {
@@ -231,7 +267,7 @@ void PickPlannerNode::executePick(const std::shared_ptr<GoalHandle>& goalHandle)
         RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
         return;
     }
-    if (!planAndExecuteImpl(*m_moveGroup, result,"home", m_stop, "pick_planner"))
+    if (!planAndExecuteImpl(*m_moveGroup, result, "home", m_stop))
         return;
 
     result->success = true;
@@ -241,52 +277,41 @@ void PickPlannerNode::executePick(const std::shared_ptr<GoalHandle>& goalHandle)
 // Stage 2: 接近
 // ═══════════════════════════════════════════════════════════════════════════
 
-bool PickPlannerNode::stageApproach(const std::shared_ptr<GoalHandle>& /*gh*/, ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose) {
-    targetPose.pose.position.z += m_approachHeight;       // 工件上方 0.15m
+bool PickPlannerNode::stage_approach(const std::shared_ptr<GoalHandle>& gh, ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose) {
+    targetPose.pose.position.z += m_approachHeight;
 
     tf2::Quaternion q;
-    q.setRPY(RPY::ROLL, RPY::PITCH, RPY::YAW);           // Roll=π → gripper Z 轴翻转向下
+    q.setRPY(RPY::ROLL, RPY::PITCH, RPY::YAW);
     targetPose.pose.orientation = tf2::toMsg(q);
 
-    m_moveGroup->setPoseTarget(targetPose);               // 设置笛卡尔目标 → 内部调 IK 求关节角
-    return planAndExecuteImpl(*m_moveGroup, result,"approach", m_stop, "pick_planner");
+    m_moveGroup->setPoseTarget(targetPose);
+    return planAndExecuteImpl(*m_moveGroup, result, "approach", m_stop);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Stage 3 / 5: 夹爪
 // ═══════════════════════════════════════════════════════════════════════════
 
-bool PickPlannerNode::stageGripper(const std::vector<double>& positions, ResultPtr result, const char* stage) {
+bool PickPlannerNode::stage_gripper(const std::vector<double>& positions, ResultPtr result, const char* stage) {
     auto goal                   = control_msgs::action::FollowJointTrajectory::Goal();
-    goal.trajectory.joint_names = {FINGER_L, FINGER_R};          // 双指关节名
+    goal.trajectory.joint_names = {FINGER_L, FINGER_R};
     goal.trajectory.points.resize(1);
-    goal.trajectory.points[0].positions       = positions;       // rad，0.0=闭合、0.5=张开
+    goal.trajectory.points[0].positions       = positions;
     goal.trajectory.points[0].time_from_start = rclcpp::Duration::from_seconds(GRIPPER_DURATION);
 
-    // 第 1 步：异步发送 goal，spin 等待服务端接收
-    auto f  = m_gripperClient->async_send_goal(goal);
-    auto t0 = std::chrono::steady_clock::now();
-    while (f.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
-        // MultiThreadedExecutor 自动处理回调，不需要手动 spin_some
-        if (std::chrono::steady_clock::now() - t0 > GRIPPER_SEND_TMO) {
-            result->message = std::string("Gripper ") + stage + " — server not available";
-            RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
-            return false;
-        }
+    auto f = m_gripperClient->async_send_goal(goal);
+    std::lock_guard<std::mutex> lock(m_spinMutex);
+    if (rclcpp::spin_until_future_complete(shared_from_this(), f, GRIPPER_SEND_TMO) != rclcpp::FutureReturnCode::SUCCESS) {
+        result->message = std::string("Gripper ") + stage + " — server not available";
+        RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
+        return false;
     }
-    // 第 2 步：等待执行结果（手指物理运动完成）
-    auto gh = f.get();
-    auto rf = m_gripperClient->async_get_result(gh);
-    t0      = std::chrono::steady_clock::now();
-    while (rf.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
-        // MultiThreadedExecutor 自动处理回调，不需要手动 spin_some
-        if (std::chrono::steady_clock::now() - t0 > GRIPPER_RESULT_TMO) {
-            result->message = std::string("Gripper ") + stage + " timed out";
-            RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
-            return false;
-        }
+    auto rf = m_gripperClient->async_get_result(f.get());
+    if (rclcpp::spin_until_future_complete(shared_from_this(), rf, GRIPPER_RESULT_TMO) != rclcpp::FutureReturnCode::SUCCESS) {
+        result->message = std::string("Gripper ") + stage + " timed out";
+        RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
+        return false;
     }
-    rf.get();
     return true;
 }
 
@@ -294,19 +319,19 @@ bool PickPlannerNode::stageGripper(const std::vector<double>& positions, ResultP
 // Stage 4: 下降抓取
 // ═══════════════════════════════════════════════════════════════════════════
 
-bool PickPlannerNode::stageDescend(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose, const std::string& collisionId) {
-    m_planningScene.removeCollisionObjects({collisionId});              // 下降要进入工件空间，先移除碰撞体
-    targetPose.pose.position.z -= (m_approachHeight - m_graspDepth);    // z = 工件顶面 + graspDepth（嵌入 3cm）
+bool PickPlannerNode::stage_descend(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose, const std::string& collisionId) {
+    m_planningScene.removeCollisionObjects({collisionId});
+    targetPose.pose.position.z -= (m_approachHeight - m_graspDepth);
     m_moveGroup->setPoseTarget(targetPose);
-    return planAndExecuteImpl(*m_moveGroup, result,"grasp", m_stop, "pick_planner");
+    return planAndExecuteImpl(*m_moveGroup, result, "grasp", m_stop);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Stage 7: 抬起
+// Stage 7 / 8: 抬起 / 回 home（共用 lift；home 在入口单独处理 setNamedTarget）
 // ═══════════════════════════════════════════════════════════════════════════
 
-bool PickPlannerNode::stageLift(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose) {
+bool PickPlannerNode::stage_lift(ResultPtr result, geometry_msgs::msg::PoseStamped& targetPose) {
     targetPose.pose.position.z += m_liftHeight;
     m_moveGroup->setPoseTarget(targetPose);
-    return planAndExecuteImpl(*m_moveGroup, result,"lift", m_stop, "pick_planner");
+    return planAndExecuteImpl(*m_moveGroup, result, "lift", m_stop);
 }
