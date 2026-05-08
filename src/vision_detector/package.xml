@@ -4,7 +4,7 @@
   <name>vision_detector</name>
   <version>0.0.0</version>
   <description>ArUco marker detection node — subscribes /camera/image_raw, publishes detected object poses</description>
-  <maintainer email="whc@todo.todo">whc</maintainer>
+  <maintainer email="1344360225@qq.com">whc</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

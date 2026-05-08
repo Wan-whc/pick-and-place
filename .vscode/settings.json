@@ -1,9 +1,0 @@
-{
-    "cmake.sourceDirectory": "/home/whc/learn/ros2_learn/pick_and_place/src/common",
-    "cmake.configureArgs": [
-        "-DCMAKE_BUILD_TYPE=Debug"
-    ],
-    "cmake.configureEnvironment": {
-        "CMAKE_PREFIX_PATH": "/opt/ros/humble"
-    }
-}

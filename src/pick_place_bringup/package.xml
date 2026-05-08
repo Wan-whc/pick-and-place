@@ -4,7 +4,7 @@
   <name>pick_place_bringup</name>
   <version>0.1.0</version>
   <description>Launch files and configurations for the pick-and-place project</description>
-  <maintainer email="whc@example.com">whc</maintainer>
+  <maintainer email="1344360225@qq.com">whc</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

@@ -89,7 +89,7 @@
             <diffuse>1 1 1 1</diffuse>
             <pbr>
               <specular>
-                <albedo_map>/home/whc/learn/ros2_learn/pick_and_place/src/pick_place_bringup/worlds/aruco_0.png</albedo_map>
+                <albedo_map>aruco_0.png</albedo_map>
               </specular>
             </pbr>
           </material>

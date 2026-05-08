@@ -3,7 +3,7 @@
 <package format="3">
   <name>task_state_machine</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>BehaviorTree.CPP-based task coordinator for the one-shot detect-pick-place workflow</description>
   <maintainer email="1344360225@qq.com">whc</maintainer>
   <license>Apache-2.0</license>
 
